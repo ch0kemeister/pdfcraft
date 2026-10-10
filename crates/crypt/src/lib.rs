@@ -141,18 +141,27 @@ pub struct SecurityHandler {
 }
 
 impl SecurityHandler {
-    /// Authenticate with `password` (tried as owner password, then user password). `None`
-    /// tries the empty password, which opens documents that only have an owner password.
+    /// Authenticate with `password` (tried as owner password, then user password).
+    ///
+    /// `None` tries the empty password as the *user* password only. That opens documents that
+    /// merely restrict permissions (empty user password, real owner password) while honouring
+    /// the restrictions. It is not tried as the owner password: a producer may compute `/O` for
+    /// an empty owner password (SetaPDF-Core does; the spec's "use the user password instead"
+    /// rule is Algorithm 3, R2–R4 only), and that document has an open password which the
+    /// reader must ask for, as Acrobat does (#603). Given explicitly, `Some("")` is still tried
+    /// as the owner password.
     pub fn open(dict: EncryptDict, id0: &[u8], password: Option<&str>) -> Result<Self, CryptError> {
         if !dict.filter.is_empty() && dict.filter != b"Standard" {
             return Err(CryptError::Unsupported(format!("/Filter /{}", String::from_utf8_lossy(&dict.filter))));
         }
+        let try_owner = password.is_some();
         let pw = password.unwrap_or("");
         let mut recovered_user = None;
         let (key, auth) = match dict.r {
             2..=4 => {
                 let legacy = legacy_password(pw);
-                if let Some((k, user)) = owner_key_r4(&dict, id0, &legacy) {
+                let owner = if try_owner { owner_key_r4(&dict, id0, &legacy) } else { None };
+                if let Some((k, user)) = owner {
                     recovered_user = Some(user);
                     (k, Auth::Owner)
                 } else if let Some(k) = user_key_r4(&dict, id0, &legacy) {
@@ -163,7 +172,8 @@ impl SecurityHandler {
             }
             5 | 6 => {
                 let pw = sasl_password(pw);
-                if let Some(k) = key_r6(&dict, &pw, true)? {
+                let owner = if try_owner { key_r6(&dict, &pw, true)? } else { None };
+                if let Some(k) = owner {
                     (k, Auth::Owner)
                 } else if let Some(k) = key_r6(&dict, &pw, false)? {
                     (k, Auth::User)

@@ -252,7 +252,8 @@ impl Document {
     }
 
     /// Parse a document, authenticating encrypted ones with `password` (owner or user; `None`
-    /// tries the empty password). Fails with `NeedsPassword` / `WrongPassword` as appropriate.
+    /// tries the empty password as the user password only, see `SecurityHandler::open`). Fails
+    /// with `NeedsPassword` / `WrongPassword` as appropriate.
     pub fn open_with_password(data: Arc<Vec<u8>>, password: Option<&str>) -> Result<Self, CosError> {
         Self::open_with_stream_limit(data, password, crate::object::MAX_DECODED)
     }

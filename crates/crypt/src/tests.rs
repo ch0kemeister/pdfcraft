@@ -78,6 +78,31 @@ fn empty_user_password_opens_without_asking() {
     }
 }
 
+/// #603: SetaPDF-Core computes /O for an empty owner password, so a document with an open
+/// password would open without asking if the empty password were also tried as the owner
+/// password. Without a password only the empty user password is tried (what Acrobat does).
+#[test]
+fn an_empty_owner_password_does_not_open_a_document_that_has_a_user_password() {
+    for alg in ALL {
+        let d = new(alg, "Auto@Sales", "", 0).dict().clone();
+        assert_eq!(SecurityHandler::open(d.clone(), ID, None).unwrap_err(), CryptError::WrongPassword, "{alg:?}");
+        // R2–R4 derive /O from the user password when the owner password is empty (Algorithm 3),
+        // so there the open password is also the owner password.
+        let expected = if alg == Algorithm::Aes256 { Auth::User } else { Auth::Owner };
+        assert_eq!(SecurityHandler::open(d.clone(), ID, Some("Auto@Sales")).unwrap().auth(), expected, "{alg:?}");
+        assert_eq!(SecurityHandler::open(d.clone(), ID, Some("nope")).unwrap_err(), CryptError::WrongPassword, "{alg:?}");
+        // Given explicitly, the empty password is still tried as the owner password. R6 computed
+        // /O from it; R2–R4 derive /O from the user password when the owner password is empty
+        // (Algorithm 3), so there it is simply wrong.
+        let explicit = SecurityHandler::open(d, ID, Some(""));
+        if alg == Algorithm::Aes256 {
+            assert_eq!(explicit.unwrap().auth(), Auth::Owner);
+        } else {
+            assert_eq!(explicit.unwrap_err(), CryptError::WrongPassword, "{alg:?}");
+        }
+    }
+}
+
 #[test]
 fn strings_and_streams_round_trip_and_are_scrambled() {
     for alg in ALL {

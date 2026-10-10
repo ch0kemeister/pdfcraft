@@ -96,6 +96,33 @@ fn text_of_a_protected_document_with_the_password_succeeds() {
     assert!(stdout.contains("Page 1") && stdout.contains("Page 3"), "{stdout}");
 }
 
+/// #603: SetaPDF-Core computes /O for an empty owner password. The renderer alone would accept
+/// that as the owner password and read the document without asking; our handler must not.
+#[test]
+fn text_of_a_document_with_an_empty_owner_password_still_needs_the_open_password() {
+    let mut doc = pdfcraft_cos::Document::open(std::sync::Arc::new(fixture(2))).unwrap();
+    doc.set_encryption(&pdfcraft_cos::NewEncryption {
+        algorithm: pdfcraft_cos::Algorithm::Aes256,
+        user_password: "openme",
+        owner_password: "",
+        permissions: -1,
+        encrypt_metadata: true,
+        seed: [3; 32],
+    })
+    .unwrap();
+    let path = tmp("empty-owner.pdf");
+    std::fs::write(&path, pdfcraft_cos::write_full(&doc, &Default::default()).unwrap()).unwrap();
+    for cmd in ["text", "info"] {
+        let out = Command::new(BIN).args([cmd, path.to_str().unwrap()]).output().unwrap();
+        assert!(!out.status.success(), "{cmd}: must not open without the password");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("password"), "{cmd}: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(out.stdout.is_empty(), "{cmd}: {}", String::from_utf8_lossy(&out.stdout));
+    }
+    let out = Command::new(BIN).args(["text", path.to_str().unwrap(), "--password", "openme"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("Page 2"));
+}
+
 mod page_argument_tests {
     use super::*;
     use std::path::PathBuf;

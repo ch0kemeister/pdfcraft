@@ -286,6 +286,10 @@ fn text(args: &[String]) -> Result<(), CliError> {
     }
     let password = flag(args, "--password");
     let bytes = read(path)?;
+    // The renderer would accept an empty owner password on its own (#603).
+    if password.is_none() && pdfcraft_render::needs_password(&bytes) {
+        return Err(format!("text: {}", pdfcraft_render::OpenError::NeedsPassword).into());
+    }
     let mut r = PageRenderer::new(bytes.clone(), RenderConfig { password: password.map(Arc::from), ..Default::default() });
     // A document the renderer could not open (wrong or missing password, unparseable file) has
     // no pages, and "extract every page" of nothing would print nothing and exit 0 (#132). Ask
@@ -461,10 +465,12 @@ fn render(args: &[String]) -> Result<(), CliError> {
         Some("pam") => None,
         _ => return Err(format!("render: --out {out}: use a .png, .jpg, .tif or .pam name").into()),
     };
-    let mut r = PageRenderer::new(
-        read(path)?,
-        RenderConfig { password: flag(args, "--password").map(Arc::from), reject_oversize: true, ..Default::default() },
-    );
+    let bytes = read(path)?;
+    let password = flag(args, "--password");
+    if password.is_none() && pdfcraft_render::needs_password(&bytes) {
+        return Err(format!("render: {}", pdfcraft_render::OpenError::NeedsPassword).into());
+    }
+    let mut r = PageRenderer::new(bytes, RenderConfig { password: password.map(Arc::from), reject_oversize: true, ..Default::default() });
     let p = r.render(RenderRequest { page: page_index, kind: RequestKind::Pixels, tile: None, scale: dpi / 72.0, tag: 0 });
     if let Some(e) = p.error {
         return Err(e.into());

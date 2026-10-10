@@ -91,6 +91,22 @@ fn every_algorithm_round_trips_and_hides_the_content() {
     }
 }
 
+/// #603: a document whose producer computed /O for an empty owner password (SetaPDF-Core) still
+/// asks for its open password; the password opens it as the user.
+#[test]
+fn an_empty_owner_password_still_asks_for_the_open_password() {
+    for alg in ALL {
+        let bytes = Arc::new(protect(alg, "Auto@Sales", "", -1));
+        assert!(matches!(Document::open(bytes.clone()), Err(CosError::NeedsPassword)), "{alg:?}");
+        let opened = Document::open_with_password(bytes.clone(), Some("Auto@Sales")).unwrap();
+        // R2–R4 derive /O from the user password when the owner password is empty (Algorithm 3),
+        // so there the open password is also the owner password.
+        let expected = if alg == Algorithm::Aes256 { Auth::User } else { Auth::Owner };
+        assert_eq!(opened.security().unwrap().auth(), expected, "{alg:?}");
+        assert_eq!(content(&opened), SECRET, "{alg:?}");
+    }
+}
+
 #[test]
 fn empty_user_password_opens_but_reports_restrictions() {
     let bytes = Arc::new(protect(Algorithm::Aes256, "", "owner", 0b0100)); // print only

@@ -350,6 +350,13 @@ pub fn inspect(bytes: Arc<Vec<u8>>, password: Option<&str>) -> Result<DocInfo, O
             LoadPdfError::Decryption(other) => OpenError::Unsupported(format!("encryption not supported: {other:?}")),
             LoadPdfError::Invalid => OpenError::Invalid("no readable page tree or cross-reference data was found".into()),
         })?;
+    // The renderer tries the empty password as the owner password too. A document with an open
+    // password whose producer computed /O for an empty owner password (SetaPDF-Core does) would
+    // open without asking (#603). Our security handler only tries it as the user password, like
+    // Acrobat: without a password, it has the last word.
+    if password.is_none() && needs_password(&bytes) {
+        return Err(OpenError::NeedsPassword);
+    }
     let mut info = DocInfo { file_size: bytes.len(), pdf_version: version_label(&format!("{:?}", pdf.version())), ..Default::default() };
     let pages = catch_unwind(AssertUnwindSafe(|| {
         let mut out = Vec::new();
@@ -404,6 +411,16 @@ pub fn inspect(bytes: Arc<Vec<u8>>, password: Option<&str>) -> Result<DocInfo, O
         return Err(OpenError::Invalid("the document has no pages".into()));
     }
     Ok(info)
+}
+
+/// Whether our own reader refuses the document without a password (see `inspect`). Anything
+/// else it says, including a crash, is left to the renderer's verdict. Callers that hand bytes
+/// straight to [`crate::PageRenderer`] without `inspect` ask this first (#603).
+pub fn needs_password(bytes: &Arc<Vec<u8>>) -> bool {
+    matches!(
+        catch_unwind(AssertUnwindSafe(|| pdfcraft_cos::Document::open_with_password(bytes.clone(), None))),
+        Ok(Err(pdfcraft_cos::CosError::NeedsPassword))
+    )
 }
 
 // Commit auxiliary metadata only after inspection succeeds; renderer geometry is the fallback.

@@ -493,6 +493,18 @@ fn protected(user: &str, owner: &str, permissions: i32) -> Arc<Vec<u8>> {
     Arc::new(pdfcraft_cos::write_full(&doc, &Default::default()).unwrap())
 }
 
+/// #603: SetaPDF-Core computed /O for an empty owner password; the file still has an open
+/// password and must ask for it (the renderer alone would accept the empty owner password).
+#[test]
+fn an_empty_owner_password_still_needs_the_open_password() {
+    let bytes = protected("Auto@Sales", "", -1);
+    let mut s = Session::new();
+    assert!(matches!(s.open("x.pdf", None, bytes.clone(), None), Err(OpenError::NeedsPassword)));
+    assert!(matches!(s.open("x.pdf", None, bytes.clone(), Some("wrong")), Err(OpenError::WrongPassword)));
+    let id = s.open("x.pdf", None, bytes, Some("Auto@Sales")).unwrap();
+    assert_eq!(s.get(id).unwrap().info.pages.len(), 2);
+}
+
 #[test]
 fn encrypted_documents_open_edit_and_save_encrypted() {
     let bytes = protected("pw", "owner", -1);
